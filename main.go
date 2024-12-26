@@ -10,6 +10,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/sam-brook/pokemoncli/internal/pokecache"
 )
 
 type cliCommand struct {
@@ -42,7 +45,7 @@ func commandHelp() error {
 }
 
 var current_location_id int
-var seen_locations []string
+var cache pokecache.Cache
 
 type location_area struct {
 	Id   int    `json:"id"`
@@ -52,55 +55,102 @@ type location_area struct {
 // NOTE for future self, if possible, make the requests and store them in a slice, then when going to a new location make more requests, but if the
 // current slice size is greater than the location requested, just loop through the slice and print the values there
 func commandMap() error {
-	if current_location_id >= len(seen_locations)+1 {
-		for i := 0; i < 20; i++ {
-			url := "https://pokeapi.co/api/v2/location-area/" + strconv.Itoa(i+current_location_id)
-
+	for i := 0; i < 20; i++ {
+		url := "https://pokeapi.co/api/v2/location-area/" + strconv.Itoa(i+current_location_id)
+		val, exists := cache.Get(url)
+		if exists {
+			var currentLoc location_area
+			err := json.Unmarshal(val, &currentLoc)
+			if err != nil {
+				return err
+			}
+			fmt.Println(currentLoc.Name)
+		} else {
 			res, err := http.Get(url)
 			if err != nil {
 				return err
 			}
 			defer res.Body.Close()
 
+			if res.StatusCode > 299 {
+				failedErr := fmt.Sprintf("Response failed with status code %d", res.StatusCode)
+				return errors.New(failedErr)
+			}
+
 			body, err := io.ReadAll(res.Body)
 			if err != nil {
 				return err
 			}
 
-			if res.StatusCode > 299 {
-				failedErr := fmt.Sprintf("Response failed with status code %d", res.StatusCode)
-				return errors.New(failedErr)
-			}
 			var currentLoc location_area
 			err = json.Unmarshal(body, &currentLoc)
 			if err != nil {
 				return err
 			}
-			seen_locations = append(seen_locations, currentLoc.Name)
+			fmt.Println(currentLoc.Name)
+			cache.Add(url, body)
 		}
+
 	}
 
-	for i := current_location_id; i < current_location_id+20; i++ {
-		fmt.Println(seen_locations[i-1])
-	}
 	current_location_id += 20
 	return nil
 }
 
 func commandMapB() error {
+	if current_location_id > 20 {
+		current_location_id -= 20
+	}
+
 	if current_location_id < 20 {
 		fmt.Println("you're on the first page")
-	} else {
-		current_location_id -= 20
-		for i := 0; i < 20; i++ {
-			fmt.Println(seen_locations[i+current_location_id-1])
+		return nil
+	}
+
+	for i := 0; i < 20; i++ {
+		url := "https://pokeapi.co/api/v2/location-area/" + strconv.Itoa(i+current_location_id)
+		val, exists := cache.Get(url)
+		if exists {
+			var currentLoc location_area
+			err := json.Unmarshal(val, &currentLoc)
+			if err != nil {
+				return err
+			}
+			fmt.Println(currentLoc.Name)
+		} else {
+			res, err := http.Get(url)
+			if err != nil {
+				return err
+			}
+			defer res.Body.Close()
+
+			if res.StatusCode > 299 {
+				failedErr := fmt.Sprintf("Response failed with status code %d", res.StatusCode)
+				return errors.New(failedErr)
+			}
+
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				return err
+			}
+
+			var currentLoc location_area
+			err = json.Unmarshal(body, &currentLoc)
+			if err != nil {
+				return err
+			}
+			fmt.Println(currentLoc.Name)
+			cache.Add(url, body)
 		}
 	}
 	return nil
 }
 
 func main() {
+	cache = pokecache.NewCache(2 * time.Second)
+
 	current_location_id = 1
+
 	commands = map[string]cliCommand{
 		"help": {
 			name:        "help",
