@@ -243,7 +243,7 @@ func commandCatch(argument string) error {
 	fmt.Printf("Throwing a Pokeball at %s...\n", pokemon.Name)
 	if catch_pokemon(pokemon) {
 		fmt.Println(pokemon.Name + " was caught!")
-		Pokedex[argument] = pokemon
+		pokedex[argument] = pokemon
 	} else {
 		fmt.Println(pokemon.Name + " escaped")
 	}
@@ -261,14 +261,25 @@ func catch_pokemon(pokemon Pokemon) bool {
 	}
 }
 
-var Pokedex map[string]Pokemon
+var pokedex map[string]Pokemon
+
+func commandPokedex(argument string) error {
+	fmt.Println("Your Pokedex: ")
+	if len(pokedex) == 0 {
+		return errors.New("No pokemon in pokedex")
+	}
+	for _, pokemon := range pokedex {
+		fmt.Println(" - " + pokemon.Name)
+	}
+	return nil
+}
 
 func main() {
 	cache = pokecache.NewCache(2 * time.Second)
 
 	current_location_id = 1
 
-	Pokedex = map[string]Pokemon{}
+	pokedex = map[string]Pokemon{}
 	commands = map[string]cliCommand{
 		"help": {
 			name:        "help",
@@ -299,6 +310,11 @@ func main() {
 			name:        "catch",
 			description: "Attempts to catch the given pokemon",
 			callback:    commandCatch,
+		},
+		"pokedex": {
+			name:        "pokedex",
+			description: "Displays all the pokemon you have caught",
+			callback:    commandPokedex,
 		},
 	}
 
