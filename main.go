@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
@@ -23,10 +24,10 @@ type cliCommand struct {
 
 var commands map[string]cliCommand
 
-func cleanInput(text string) string {
+func cleanInput(text string) []string {
 	lowercase := strings.ToLower(text)
 	result := strings.Fields(lowercase)
-	return result[0]
+	return result
 }
 
 func commandExit(argument string) error {
@@ -186,7 +187,7 @@ func commandExplore(argument string) error {
 		}
 
 		var location_response Response
-		err = json.Unmarshal(val, &location_response)
+		err = json.Unmarshal(body, &location_response)
 		if err != nil {
 			return err
 		}
@@ -199,11 +200,75 @@ func commandExplore(argument string) error {
 	return nil
 }
 
+type Pokemon struct {
+	Name       string `json:"name"`
+	Experience int    `json:"base_experience"`
+}
+
+func commandCatch(argument string) error {
+	url := "https://pokeapi.co/api/v2/pokemon/" + argument
+	var pokemon Pokemon
+
+	val, exists := cache.Get(url)
+	if exists {
+		err := json.Unmarshal(val, &pokemon)
+		if err != nil {
+			return err
+		}
+	} else {
+		res, err := http.Get(url)
+		if err != nil {
+			return err
+		}
+		defer res.Body.Close()
+
+		if res.StatusCode > 299 {
+			failedErr := fmt.Sprintf("Response failed with status code %d, maybe the pokemon name was invalid", res.StatusCode)
+			return errors.New(failedErr)
+		}
+
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
+
+		err = json.Unmarshal(body, &pokemon)
+		if err != nil {
+			return err
+		}
+
+		cache.Add(url, body)
+	}
+
+	fmt.Printf("Throwing a Pokeball at %s...\n", pokemon.Name)
+	if catch_pokemon(pokemon) {
+		fmt.Println(pokemon.Name + " was caught!")
+		Pokedex[argument] = pokemon
+	} else {
+		fmt.Println(pokemon.Name + " escaped")
+	}
+
+	return nil
+}
+
+func catch_pokemon(pokemon Pokemon) bool {
+	num := rand.Intn(pokemon.Experience)
+
+	if num <= 50 {
+		return true
+	} else {
+		return false
+	}
+}
+
+var Pokedex map[string]Pokemon
+
 func main() {
 	cache = pokecache.NewCache(2 * time.Second)
 
 	current_location_id = 1
 
+	Pokedex = map[string]Pokemon{}
 	commands = map[string]cliCommand{
 		"help": {
 			name:        "help",
@@ -230,18 +295,30 @@ func main() {
 			description: "Displays the pokemon in a given location",
 			callback:    commandExplore,
 		},
+		"catch": {
+			name:        "catch",
+			description: "Attempts to catch the given pokemon",
+			callback:    commandCatch,
+		},
 	}
+
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Print("Pokedex > ")
 	for scanner.Scan() {
 		text := scanner.Text()
 		cleanText := cleanInput(text)
-		argument := ""
-		command, ok := commands[cleanText]
+		command, ok := commands[cleanText[0]]
 		if ok {
-			err := command.callback(argument)
-			if err != nil {
-				fmt.Println(err)
+			if len(cleanText) > 1 {
+				err := command.callback(cleanText[1])
+				if err != nil {
+					fmt.Println(err)
+				}
+			} else {
+				err := command.callback("")
+				if err != nil {
+					fmt.Println(err)
+				}
 			}
 		} else {
 			fmt.Println("Unknown command")
