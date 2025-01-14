@@ -200,9 +200,29 @@ func commandExplore(argument string) error {
 	return nil
 }
 
+type Stat struct {
+	Base_stat int `json:"base_stat"`
+	Stat_info struct {
+		Name string `json:"name"`
+	} `json:"stat"`
+}
+
+func commandInspect(argument string) error {
+	pokemon, ok := pokedex[argument]
+	if !ok {
+		fmt.Println("you have not caught that pokemon")
+	} else {
+		fmt.Printf("Name: %v\nHeight: %v\nWeight: %v\nStats:\n", pokemon.Name, pokemon.Height, pokemon.Weight)
+	}
+	return nil
+}
+
 type Pokemon struct {
 	Name       string `json:"name"`
 	Experience int    `json:"base_experience"`
+	Height     int    `json:"height"`
+	Weight     int    `json:"weight"`
+	Stats      []Stat `json:"stats"`
 }
 
 func commandCatch(argument string) error {
@@ -315,6 +335,11 @@ func main() {
 			name:        "pokedex",
 			description: "Displays all the pokemon you have caught",
 			callback:    commandPokedex,
+		},
+		"inspect": {
+			name:        "inspect",
+			description: "Displays information on the given pokemon if it is in your pokedex",
+			callback:    commandInspect,
 		},
 	}
 
