@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -45,114 +44,132 @@ func commandHelp(argument string) error {
 	return nil
 }
 
-var current_location_id int
+var current_location location_area
 var cache pokecache.Cache
 
 type location_area struct {
-	Id   int    `json:"id"`
-	Name string `json:"name"`
+	Next     string `json:"next"`
+	Previous string `json:"previous"`
+	Results  []struct {
+		Name string `json:"name"`
+	} `json:"results"`
 }
 
-// NOTE for future self, if possible, make the requests and store them in a slice, then when going to a new location make more requests, but if the
-// current slice size is greater than the location requested, just loop through the slice and print the values there
 func commandMap(argument string) error {
-	for i := 0; i < 20; i++ {
-		url := "https://pokeapi.co/api/v2/location-area/" + strconv.Itoa(i+current_location_id)
-		val, exists := cache.Get(url)
-		if exists {
-			var currentLoc location_area
-			err := json.Unmarshal(val, &currentLoc)
-			if err != nil {
-				return err
-			}
-			fmt.Println(currentLoc.Name)
-		} else {
-			res, err := http.Get(url)
-			if err != nil {
-				return err
-			}
-			defer res.Body.Close()
-
-			if res.StatusCode > 299 {
-				failedErr := fmt.Sprintf("Response failed with status code %d", res.StatusCode)
-				return errors.New(failedErr)
-			}
-
-			body, err := io.ReadAll(res.Body)
-			if err != nil {
-				return err
-			}
-
-			var currentLoc location_area
-			err = json.Unmarshal(body, &currentLoc)
-			if err != nil {
-				return err
-			}
-			fmt.Println(currentLoc.Name)
-			cache.Add(url, body)
-		}
-
+	var url string
+	if current_page == 0 {
+		url = "https://pokeapi.co/api/v2/location-area/"
+	} else {
+		url = current_location.Next
 	}
 
-	current_location_id += 20
+	val, exists := cache.Get(url)
+	var next_location location_area
+
+	if exists {
+		err := json.Unmarshal(val, &next_location)
+		if err != nil {
+			return err
+		}
+	} else {
+		res, err := http.Get(url)
+		if err != nil {
+			return err
+		}
+		defer res.Body.Close()
+
+		if res.StatusCode > 299 {
+			failedErr := fmt.Sprintf("Response failed with status code %d", res.StatusCode)
+			return errors.New(failedErr)
+		}
+
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
+
+		err = json.Unmarshal(body, &next_location)
+		if err != nil {
+			return err
+		}
+		cache.Add(url, body)
+	}
+
+	for _, loc := range next_location.Results {
+		fmt.Println(loc.Name)
+	}
+	current_location = next_location
+	current_page++
+
 	return nil
 }
 
 func commandMapB(argument string) error {
-	if current_location_id > 20 {
-		current_location_id -= 20
-	}
 
-	if current_location_id < 20 {
+	if current_page <= 1 {
 		fmt.Println("you're on the first page")
 		return nil
 	}
 
-	for i := 0; i < 20; i++ {
-		url := "https://pokeapi.co/api/v2/location-area/" + strconv.Itoa(i+current_location_id)
-		val, exists := cache.Get(url)
-		if exists {
-			var currentLoc location_area
-			err := json.Unmarshal(val, &currentLoc)
-			if err != nil {
-				return err
-			}
-			fmt.Println(currentLoc.Name)
-		} else {
-			res, err := http.Get(url)
-			if err != nil {
-				return err
-			}
-			defer res.Body.Close()
+	url := current_location.Previous
+	val, exists := cache.Get(url)
+	var next_location location_area
 
-			if res.StatusCode > 299 {
-				failedErr := fmt.Sprintf("Response failed with status code %d", res.StatusCode)
-				return errors.New(failedErr)
-			}
-
-			body, err := io.ReadAll(res.Body)
-			if err != nil {
-				return err
-			}
-
-			var currentLoc location_area
-			err = json.Unmarshal(body, &currentLoc)
-			if err != nil {
-				return err
-			}
-			fmt.Println(currentLoc.Name)
-			cache.Add(url, body)
+	if exists {
+		err := json.Unmarshal(val, &next_location)
+		if err != nil {
+			return err
 		}
+	} else {
+		res, err := http.Get(url)
+		if err != nil {
+			return err
+		}
+		defer res.Body.Close()
+
+		if res.StatusCode > 299 {
+			failedErr := fmt.Sprintf("Response failed with status code %d", res.StatusCode)
+			return errors.New(failedErr)
+		}
+
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return err
+		}
+
+		err = json.Unmarshal(body, &next_location)
+		if err != nil {
+			return err
+		}
+		for _, location := range next_location.Results {
+			fmt.Println(location.Name)
+		}
+		cache.Add(url, body)
 	}
+
+	current_location = next_location
+	current_page--
+
 	return nil
 }
 
+type Type_Info struct {
+	Type struct {
+		Name string `json:"name"`
+	} `json:"type"`
+}
+
+type Pokemon struct {
+	Name       string      `json:"name"`
+	Experience int         `json:"base_experience"`
+	Height     int         `json:"height"`
+	Weight     int         `json:"weight"`
+	Stats      []Stat      `json:"stats"`
+	Types      []Type_Info `json:"types"`
+}
+
 type Response struct {
-	PokemonEncounters []struct {
-		Pokemon struct {
-			Name string `json:"name"`
-		} `json:"pokemon"`
-	} `json:"pokemon_encounters"`
+	PokemonEncounters []Pokemon `json:"pokemon_encounters"`
 }
 
 func commandExplore(argument string) error {
@@ -166,7 +183,7 @@ func commandExplore(argument string) error {
 			return err
 		}
 		for _, encounter := range location_response.PokemonEncounters {
-			name := encounter.Pokemon.Name
+			name := encounter.Name
 			fmt.Println(name)
 		}
 	} else {
@@ -192,7 +209,7 @@ func commandExplore(argument string) error {
 			return err
 		}
 		for _, encounter := range location_response.PokemonEncounters {
-			name := encounter.Pokemon.Name
+			name := encounter.Name
 			fmt.Println(name)
 		}
 		cache.Add(url, body)
@@ -213,16 +230,15 @@ func commandInspect(argument string) error {
 		fmt.Println("you have not caught that pokemon")
 	} else {
 		fmt.Printf("Name: %v\nHeight: %v\nWeight: %v\nStats:\n", pokemon.Name, pokemon.Height, pokemon.Weight)
+		for _, stats := range pokemon.Stats {
+			fmt.Printf("  -%v: %v\n", stats.Stat_info.Name, stats.Base_stat)
+		}
+		fmt.Println("Types:")
+		for _, t := range pokemon.Types {
+			fmt.Println(" - " + t.Type.Name)
+		}
 	}
 	return nil
-}
-
-type Pokemon struct {
-	Name       string `json:"name"`
-	Experience int    `json:"base_experience"`
-	Height     int    `json:"height"`
-	Weight     int    `json:"weight"`
-	Stats      []Stat `json:"stats"`
 }
 
 func commandCatch(argument string) error {
@@ -294,10 +310,12 @@ func commandPokedex(argument string) error {
 	return nil
 }
 
+var current_page int
+
 func main() {
 	cache = pokecache.NewCache(2 * time.Second)
 
-	current_location_id = 1
+	current_page = 0
 
 	pokedex = map[string]Pokemon{}
 	commands = map[string]cliCommand{
